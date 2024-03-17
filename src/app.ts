@@ -28,7 +28,13 @@ app.use(
   koajwt({
     secret: SECRET
   }).unless({
-    path: [/^\/api\/users\/login/, /^\/api\/users\/get-publick-key/, /^\/api\/users\/has/, /^\/api\/users\/register/]
+    path: [
+      /^\/api\/users\/login/,
+      /^\/api\/users\/get-publick-key/,
+      /^\/api\/users\/has/,
+      /^\/api\/users\/register/,
+      /^\/api\/users\/test/
+    ]
   })
 );
 
