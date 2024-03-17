@@ -9,6 +9,13 @@ import { SECRET } from '../global';
 
 interface User {
   user_name: string;
+  name: string;
+  follow: number;
+  follower: number;
+  plan: number;
+  bio: string;
+  like: number;
+  collect: number;
   // Add other properties if necessary
 }
 
@@ -112,13 +119,32 @@ router.post('/register', async ctx => {
 
 router.get('/self-info', async ctx => {
   try {
-    const { token } = ctx.request.body as {
-      token: string;
-    };
-    console.log(JWT.decode(token));
+    // 从响应头获取 token
+    const token = ctx.request.headers.authorization as string;
+    console.log('token', token);
+    // 解析 token Bearer token
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    console.log('decoded', decoded);
+    const { username } = decoded as { username: string };
+    const [result] = (await Connect.query('SELECT * FROM users WHERE user_name = ?', [username])) as RowDataPacket[];
+    const user = result[0] as User;
+    // 只要 user_name name follow follower plan bio like collect 字段、
+    const { user_name, name, follow, follower, plan, bio, like, collect } = user;
+    ctx.body = formatResponse(200, 'success', { user_name, name, follow, follower, plan, bio, like, collect });
   } catch (err) {
     if (err instanceof Error) {
       console.log(err);
+    }
+  }
+});
+
+router.get('/test', async ctx => {
+  try {
+    const [result] = await Connect.query('SELECT * FROM users');
+    console.log(result);
+  } catch (error) {
+    if (error instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', error.message);
     }
   }
 });
