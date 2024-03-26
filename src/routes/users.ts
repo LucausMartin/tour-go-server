@@ -16,8 +16,12 @@ interface User {
   bio: string;
   like: number;
   collect: number;
+  draft: number;
+  history: number;
   // Add other properties if necessary
 }
+
+const salt = Bcrypt.genSaltSync(10);
 
 const RSA = new NodeRSA({ b: 512 });
 RSA.setOptions({ encryptionScheme: 'pkcs1' });
@@ -95,15 +99,14 @@ router.post('/register', async ctx => {
       name: string;
     };
 
-    // 生成随机盐
-    const salt = Bcrypt.genSaltSync(10);
     // 解密再进行加密
     const hashedPassword = Bcrypt.hashSync(RSA.decrypt(password, 'utf8'), salt);
+    const hashedCertifyCharacters = Bcrypt.hashSync(RSA.decrypt(certifyCharacters, 'utf8'), salt);
 
     // 存储密文
     const [result] = (await Connect.query(
       'INSERT INTO users (user_name, password, name, certify_characters) VALUES (?, ?, ?, ?)',
-      [username, hashedPassword, name, certifyCharacters]
+      [username, hashedPassword, name, hashedCertifyCharacters]
     )) as ResultSetHeader[];
     if (result.affectedRows === 1) {
       ctx.body = formatResponse(200, 'success', 'Register successfully');
@@ -121,30 +124,78 @@ router.get('/self-info', async ctx => {
   try {
     // 从响应头获取 token
     const token = ctx.request.headers.authorization as string;
-    console.log('token', token);
     // 解析 token Bearer token
     const decoded = JWT.verify(token.split(' ')[1], SECRET);
-    console.log('decoded', decoded);
     const { username } = decoded as { username: string };
     const [result] = (await Connect.query('SELECT * FROM users WHERE user_name = ?', [username])) as RowDataPacket[];
     const user = result[0] as User;
     // 只要 user_name name follow follower plan bio like collect 字段、
-    const { user_name, name, follow, follower, plan, bio, like, collect } = user;
-    ctx.body = formatResponse(200, 'success', { user_name, name, follow, follower, plan, bio, like, collect });
+    const { user_name, name, follow, follower, plan, bio, like, collect, draft, history } = user;
+    ctx.body = formatResponse(200, 'success', {
+      user_name,
+      name,
+      follow,
+      follower,
+      plan,
+      bio,
+      like,
+      collect,
+      draft,
+      history
+    });
   } catch (err) {
     if (err instanceof Error) {
-      console.log(err);
+      ctx.body = formatResponse(500, 'fail', err.message);
     }
   }
 });
 
-router.get('/test', async ctx => {
+router.post('/forget-password', async ctx => {
   try {
-    const [result] = await Connect.query('SELECT * FROM users');
-    console.log(result);
+    // 获取用户名
+    const { username, certifyCharacters } = ctx.request.body as { username: string; certifyCharacters: string };
+    const hashedCertifyCharacters = RSA.decrypt(certifyCharacters, 'utf8');
+    // 对照数据库
+    const [result] = (await Connect.query('SELECT certify_characters FROM users WHERE user_name = ?', [
+      username
+    ])) as RowDataPacket[];
+    // 获取密文
+    const { certify_characters } = result[0];
+    // 对比密文
+    const isCorrect = Bcrypt.compareSync(hashedCertifyCharacters, certify_characters);
+
+    if (isCorrect) {
+      return (ctx.body = formatResponse(200, 'success', 'Certify successfully'));
+    } else {
+      return (ctx.body = formatResponse(400, 'success', 'Certify error'));
+    }
   } catch (error) {
     if (error instanceof Error) {
       ctx.body = formatResponse(500, 'fail', error.message);
+      console.log(error);
+    }
+  }
+});
+
+router.post('/change-password', async ctx => {
+  try {
+    const { username, password } = ctx.request.body as { username: string; password: string };
+    console.log(username, password);
+    const hashedPassword = Bcrypt.hashSync(RSA.decrypt(password, 'utf8'), salt);
+    const [result] = (await Connect.query('UPDATE users SET password = ? WHERE user_name = ?', [
+      hashedPassword,
+      username
+    ])) as ResultSetHeader[];
+    console.log(result);
+    if (result.affectedRows === 1) {
+      ctx.body = formatResponse(200, 'success', 'Change password successfully');
+    } else {
+      ctx.body = formatResponse(500, 'fail', 'Change password failed');
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', error.message);
+      console.log(error);
     }
   }
 });

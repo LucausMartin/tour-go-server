@@ -33,7 +33,8 @@ app.use(
       /^\/api\/users\/get-publick-key/,
       /^\/api\/users\/has/,
       /^\/api\/users\/register/,
-      /^\/api\/users\/test/
+      /^\/api\/users\/forget-password/,
+      /^\/api\/users\/change-password/
     ]
   })
 );
