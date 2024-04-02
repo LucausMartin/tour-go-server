@@ -5,7 +5,8 @@ import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import NodeRSA from 'node-rsa';
 import Bcrypt from 'bcryptjs';
 import JWT from 'jsonwebtoken';
-import { SECRET } from '../global';
+import { SECRET, IP } from '../global';
+import fs from 'fs';
 
 interface User {
   user_name: string;
@@ -18,7 +19,7 @@ interface User {
   collect: number;
   draft: number;
   history: number;
-  // Add other properties if necessary
+  avatar: string;
 }
 
 const salt = Bcrypt.genSaltSync(10);
@@ -50,8 +51,11 @@ router.get('/list', async ctx => {
 
 router.post('/has', async ctx => {
   try {
-    const { username } = ctx.request.body as { username: string };
+    const { username } = JSON.parse(ctx.request.body) as { username: string };
+    console.log(ctx.request.body);
+    console.log(username);
     const [result] = await Connect.query('SELECT user_name FROM users WHERE user_name = ?', [username]);
+    console.log(result);
     const hasUser = Array.isArray(result) && result.length > 0;
     ctx.body = formatResponse(200, 'success', { hasUser });
   } catch (error) {
@@ -63,7 +67,7 @@ router.post('/has', async ctx => {
 
 router.post('/login', async ctx => {
   try {
-    const { username, password } = ctx.request.body as { username: string; password: string };
+    const { username, password } = JSON.parse(ctx.request.body) as { username: string; password: string };
 
     // 查询数据库里的密码
     const [daPassword] = (await Connect.query('SELECT password FROM users WHERE user_name = ?', [
@@ -92,7 +96,7 @@ router.post('/login', async ctx => {
 
 router.post('/register', async ctx => {
   try {
-    const { username, password, name, certifyCharacters } = ctx.request.body as {
+    const { username, password, name, certifyCharacters } = JSON.parse(ctx.request.body) as {
       username: string;
       password: string;
       certifyCharacters: string;
@@ -130,7 +134,7 @@ router.get('/self-info', async ctx => {
     const [result] = (await Connect.query('SELECT * FROM users WHERE user_name = ?', [username])) as RowDataPacket[];
     const user = result[0] as User;
     // 只要 user_name name follow follower plan bio like collect 字段、
-    const { user_name, name, follow, follower, plan, bio, like, collect, draft, history } = user;
+    const { user_name, name, follow, follower, plan, bio, like, collect, draft, history, avatar } = user;
     ctx.body = formatResponse(200, 'success', {
       user_name,
       name,
@@ -141,7 +145,8 @@ router.get('/self-info', async ctx => {
       like,
       collect,
       draft,
-      history
+      history,
+      avatar: avatar ? `${IP}/${avatar}` : ''
     });
   } catch (err) {
     if (err instanceof Error) {
@@ -153,7 +158,10 @@ router.get('/self-info', async ctx => {
 router.post('/forget-password', async ctx => {
   try {
     // 获取用户名
-    const { username, certifyCharacters } = ctx.request.body as { username: string; certifyCharacters: string };
+    const { username, certifyCharacters } = JSON.parse(ctx.request.body) as {
+      username: string;
+      certifyCharacters: string;
+    };
     const hashedCertifyCharacters = RSA.decrypt(certifyCharacters, 'utf8');
     // 对照数据库
     const [result] = (await Connect.query('SELECT certify_characters FROM users WHERE user_name = ?', [
@@ -179,7 +187,7 @@ router.post('/forget-password', async ctx => {
 
 router.post('/change-password', async ctx => {
   try {
-    const { username, password } = ctx.request.body as { username: string; password: string };
+    const { username, password } = JSON.parse(ctx.request.body) as { username: string; password: string };
     console.log(username, password);
     const hashedPassword = Bcrypt.hashSync(RSA.decrypt(password, 'utf8'), salt);
     const [result] = (await Connect.query('UPDATE users SET password = ? WHERE user_name = ?', [
@@ -191,6 +199,79 @@ router.post('/change-password', async ctx => {
       ctx.body = formatResponse(200, 'success', 'Change password successfully');
     } else {
       ctx.body = formatResponse(500, 'fail', 'Change password failed');
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', error.message);
+      console.log(error);
+    }
+  }
+});
+
+router.post('/change-avatar', async ctx => {
+  try {
+    // 获取前端传来的图片
+    if (!Array.isArray(ctx.request.files!.avatar)) {
+      const token = ctx.request.headers.authorization as string;
+      const decoded = JWT.verify(token.split(' ')[1], SECRET);
+      const { username } = decoded as { username: string };
+      const avatarName = ctx.request.files!.avatar.newFilename;
+
+      // 查询数据库原本的文件名
+      const [result] = (await Connect.query('SELECT avatar FROM users WHERE user_name = ?', [
+        username
+      ])) as RowDataPacket[];
+      // 删除原本的文件
+      if (result.length > 0) {
+        const oldAvatarName = result[0].avatar;
+        if (oldAvatarName) {
+          // 删除原本的文件
+          fs.unlinkSync(`src/public/images/avatar/${oldAvatarName}`);
+        }
+      }
+
+      // 更新数据库
+      const [res] = (await Connect.query('UPDATE users SET avatar = ? WHERE user_name = ?', [
+        avatarName,
+        username
+      ])) as ResultSetHeader[];
+      if (res.affectedRows === 1) {
+        ctx.body = formatResponse(200, 'success', 'Change avatar successfully');
+      } else {
+        ctx.body = formatResponse(500, 'fail', 'Change avatar failed');
+      }
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      if (!Array.isArray(ctx.request.files!.avatar)) {
+        const avatarName = ctx.request.files!.avatar.newFilename;
+        fs.unlinkSync(`src/public/images/avatar/${avatarName}`);
+      }
+      ctx.body = formatResponse(500, 'fail', error.message);
+      console.log(error);
+    }
+  }
+});
+
+router.post('/change-info', async ctx => {
+  try {
+    const token = ctx.request.headers.authorization as string;
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    const { username } = decoded as { username: string };
+
+    // 获取前端传来的 name 和 bio
+    const { name, bio } = JSON.parse(ctx.request.body) as { name: string; bio: string };
+
+    // 更新数据库
+    const [result] = (await Connect.query('UPDATE users SET name = ?, bio = ? WHERE user_name = ?', [
+      name,
+      bio,
+      username
+    ])) as ResultSetHeader[];
+    if (result.affectedRows === 1) {
+      ctx.body = formatResponse(200, 'success', 'Change info successfully');
+    } else {
+      ctx.body = formatResponse(500, 'fail', 'Change info failed');
     }
   } catch (error) {
     if (error instanceof Error) {

@@ -1,15 +1,27 @@
 import Koa from 'koa';
 import cors from 'koa2-cors';
-import bodyParser from 'koa-bodyparser';
+import koaBody from 'koa-body';
 import usersRouter from './routes/users';
 import koajwt from 'koa-jwt';
-// import { SECRET } from './global';
 import { formatResponse } from '../utils/common';
 import { SECRET } from './global';
+import path from 'path';
+import koaStatic from 'koa-static';
 
 const app = new Koa();
 app.use(cors());
-app.use(bodyParser());
+app.use(
+  koaBody({
+    multipart: true,
+    formidable: {
+      uploadDir: path.join(__dirname, 'public/images/avatar/'),
+      keepExtensions: true
+    }
+  })
+);
+
+app.use(koaStatic(path.join(__dirname, 'public/images/avatar/')));
+
 // 错误处理
 app.use(async (ctx, next) => {
   try {
