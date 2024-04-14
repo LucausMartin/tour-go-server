@@ -7,6 +7,7 @@ import Bcrypt from 'bcryptjs';
 import JWT from 'jsonwebtoken';
 import { SECRET, IP } from '../global';
 import fs from 'fs';
+import generateUUID from '../../utils/uuidMiddleWare';
 
 interface User {
   user_name: string;
@@ -17,7 +18,7 @@ interface User {
   bio: string;
   like: number;
   collect: number;
-  draft: number;
+  article: number;
   history: number;
   avatar: string;
 }
@@ -52,10 +53,7 @@ router.get('/list', async ctx => {
 router.post('/has', async ctx => {
   try {
     const { username } = JSON.parse(ctx.request.body) as { username: string };
-    console.log(ctx.request.body);
-    console.log(username);
     const [result] = await Connect.query('SELECT user_name FROM users WHERE user_name = ?', [username]);
-    console.log(result);
     const hasUser = Array.isArray(result) && result.length > 0;
     ctx.body = formatResponse(200, 'success', { hasUser });
   } catch (error) {
@@ -133,8 +131,7 @@ router.get('/self-info', async ctx => {
     const { username } = decoded as { username: string };
     const [result] = (await Connect.query('SELECT * FROM users WHERE user_name = ?', [username])) as RowDataPacket[];
     const user = result[0] as User;
-    // 只要 user_name name follow follower plan bio like collect 字段、
-    const { user_name, name, follow, follower, plan, bio, like, collect, draft, history, avatar } = user;
+    const { user_name, name, follow, follower, plan, bio, like, collect, article, history, avatar } = user;
     ctx.body = formatResponse(200, 'success', {
       user_name,
       name,
@@ -144,10 +141,81 @@ router.get('/self-info', async ctx => {
       bio,
       like,
       collect,
-      draft,
+      article,
       history,
       avatar: avatar ? `${IP}/${avatar}` : ''
     });
+  } catch (err) {
+    if (err instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', err.message);
+    }
+  }
+});
+
+router.post('/other-info', async ctx => {
+  try {
+    const { username } = JSON.parse(ctx.request.body) as { username: string };
+    const [result] = (await Connect.query('SELECT * FROM users WHERE user_name = ?', [username])) as RowDataPacket[];
+    const user = result[0] as User;
+    const { name, bio, avatar } = user;
+    ctx.body = formatResponse(200, 'success', {
+      name,
+      bio,
+      avatar: avatar ? `${IP}/${avatar}` : ''
+    });
+  } catch (err) {
+    if (err instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', err.message);
+    }
+  }
+});
+
+router.post('/remove-follow', async ctx => {
+  try {
+    console.log('remove-follow');
+    const Connection = await Connect.getConnection();
+    Connection.beginTransaction();
+    // 从响应头获取 token
+    const token = ctx.request.headers.authorization as string;
+    // 解析 token Bearer token
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    const { username } = decoded as { username: string };
+    const { id, removeName } = JSON.parse(ctx.request.body) as { id: string; removeName: string };
+    const sql1 = 'DELETE FROM follows WHERE follows_id = ?';
+    const sql2 = 'UPDATE users SET follow = follow - 1 WHERE user_name = ?';
+    const sql3 = 'UPDATE users SET follower = follower - 1 WHERE user_name = ?';
+
+    await Connection.query(sql1, [id]);
+    await Connection.query(sql2, [username]);
+    await Connection.query(sql3, [removeName]);
+
+    await Connection.commit();
+    ctx.body = formatResponse(200, 'success', 'Remove follow successfully');
+  } catch (err) {
+    console.log(err);
+    if (err instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', err.message);
+    }
+  }
+});
+
+router.post('/add-follow', async ctx => {
+  try {
+    const Connection = await Connect.getConnection();
+    Connection.beginTransaction();
+    const { followName } = JSON.parse(ctx.request.body) as { followName: string };
+    const token = ctx.request.headers.authorization as string;
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    const { username } = decoded as { username: string };
+
+    const sql1 = 'INSERT INTO follows (user, follow, follows_id) VALUES (?, ?, ?)';
+    const sql2 = 'UPDATE users SET follow = follow + 1 WHERE user_name = ?';
+    const sql3 = 'UPDATE users SET follower = follower + 1 WHERE user_name = ?';
+    await Connection.query(sql1, [username, followName, generateUUID()]);
+    await Connection.query(sql2, [username]);
+    await Connection.query(sql3, [followName]);
+    await Connection.commit();
+    ctx.body = formatResponse(200, 'success', 'Add follow successfully');
   } catch (err) {
     if (err instanceof Error) {
       ctx.body = formatResponse(500, 'fail', err.message);
@@ -180,7 +248,6 @@ router.post('/forget-password', async ctx => {
   } catch (error) {
     if (error instanceof Error) {
       ctx.body = formatResponse(500, 'fail', error.message);
-      console.log(error);
     }
   }
 });
@@ -188,13 +255,11 @@ router.post('/forget-password', async ctx => {
 router.post('/change-password', async ctx => {
   try {
     const { username, password } = JSON.parse(ctx.request.body) as { username: string; password: string };
-    console.log(username, password);
     const hashedPassword = Bcrypt.hashSync(RSA.decrypt(password, 'utf8'), salt);
     const [result] = (await Connect.query('UPDATE users SET password = ? WHERE user_name = ?', [
       hashedPassword,
       username
     ])) as ResultSetHeader[];
-    console.log(result);
     if (result.affectedRows === 1) {
       ctx.body = formatResponse(200, 'success', 'Change password successfully');
     } else {
@@ -203,7 +268,6 @@ router.post('/change-password', async ctx => {
   } catch (error) {
     if (error instanceof Error) {
       ctx.body = formatResponse(500, 'fail', error.message);
-      console.log(error);
     }
   }
 });
@@ -248,7 +312,6 @@ router.post('/change-avatar', async ctx => {
         fs.unlinkSync(`src/public/images/avatar/${avatarName}`);
       }
       ctx.body = formatResponse(500, 'fail', error.message);
-      console.log(error);
     }
   }
 });
@@ -276,7 +339,56 @@ router.post('/change-info', async ctx => {
   } catch (error) {
     if (error instanceof Error) {
       ctx.body = formatResponse(500, 'fail', error.message);
-      console.log(error);
+    }
+  }
+});
+
+router.get('/follows', async ctx => {
+  try {
+    const token = ctx.request.headers.authorization as string;
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    const { username } = decoded as { username: string };
+
+    // 查找数据库中该用户关注的人和该条记录的
+    const [result] = (await Connect.query('SELECT follow, follows_id FROM follows WHERE user = ?', [
+      username
+    ])) as RowDataPacket[];
+
+    const follows = result.map((row: { follow: string; follows_id: string }) => {
+      return {
+        follow: row.follow,
+        follows_id: row.follows_id
+      };
+    });
+    ctx.body = formatResponse(200, 'success', { follows });
+  } catch (error) {
+    if (error instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', error.message);
+    }
+  }
+});
+
+router.get('/fans', async ctx => {
+  try {
+    const token = ctx.request.headers.authorization as string;
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    const { username } = decoded as { username: string };
+
+    // 查找数据库中该用户关注的人和该条记录的
+    const [result] = (await Connect.query('SELECT user, follows_id FROM follows WHERE follow = ?', [
+      username
+    ])) as RowDataPacket[];
+
+    const follows = result.map((row: { user: string; follows_id: string }) => {
+      return {
+        follow: row.user,
+        follows_id: row.follows_id
+      };
+    });
+    ctx.body = formatResponse(200, 'success', { follows });
+  } catch (error) {
+    if (error instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', error.message);
     }
   }
 });
