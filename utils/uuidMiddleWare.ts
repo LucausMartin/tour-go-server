@@ -4,4 +4,4 @@ function generateUUID() {
   return uuidv4();
 }
 
-module.exports = generateUUID;
+export default generateUUID;
