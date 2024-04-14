@@ -7,6 +7,7 @@ import { formatResponse } from '../utils/common';
 import { SECRET } from './global';
 import path from 'path';
 import koaStatic from 'koa-static';
+import plansRouter from './routes/plans';
 
 const app = new Koa();
 app.use(cors());
@@ -52,6 +53,7 @@ app.use(
 );
 
 app.use(usersRouter.routes()).use(usersRouter.allowedMethods());
+app.use(plansRouter.routes()).use(plansRouter.allowedMethods());
 app.listen(3000, () => {
   console.log('server is running at http://localhost:3000');
 });
