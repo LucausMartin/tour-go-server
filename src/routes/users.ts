@@ -172,7 +172,6 @@ router.post('/other-info', async ctx => {
 
 router.post('/remove-follow', async ctx => {
   try {
-    console.log('remove-follow');
     const Connection = await Connect.getConnection();
     Connection.beginTransaction();
     // 从响应头获取 token
@@ -215,7 +214,60 @@ router.post('/add-follow', async ctx => {
     await Connection.query(sql2, [username]);
     await Connection.query(sql3, [followName]);
     await Connection.commit();
+    // 添加消息
+    await Connection.query(
+      'INSERT INTO messages (message_id, user_name_send, user_name_receive, message_content, type, time) VALUES (?, ?, ?, ?, ?, ?)',
+      [generateUUID(), username, followName, '他成为你的粉丝', 'follow', new Date().toString()]
+    );
     ctx.body = formatResponse(200, 'success', 'Add follow successfully');
+  } catch (err) {
+    if (err instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', err.message);
+    }
+  }
+});
+
+router.post('/remove-fans', async ctx => {
+  try {
+    const Connection = await Connect.getConnection();
+    Connection.beginTransaction();
+    // 从响应头获取 token
+    const token = ctx.request.headers.authorization as string;
+    // 解析 token Bearer token
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    const { username } = decoded as { username: string };
+    const { removeName } = JSON.parse(ctx.request.body) as { id: string; removeName: string };
+    const sql1 = 'DELETE FROM follows WHERE user = ? AND follow = ?';
+    const sql2 = 'UPDATE users SET follow = follow - 1 WHERE user_name = ?';
+    const sql3 = 'UPDATE users SET follower = follower - 1 WHERE user_name = ?';
+
+    await Connection.query(sql1, [removeName, username]);
+    await Connection.query(sql2, [removeName]);
+    await Connection.query(sql3, [username]);
+
+    await Connection.commit();
+    ctx.body = formatResponse(200, 'success', 'Remove follow successfully');
+  } catch (err) {
+    console.log(err);
+    if (err instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', err.message);
+    }
+  }
+});
+
+// 查看该用户是否关注了另一个用户
+router.post('/is-follow', async ctx => {
+  try {
+    const { followName } = JSON.parse(ctx.request.body) as { followName: string };
+    const token = ctx.request.headers.authorization as string;
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    const { username } = decoded as { username: string };
+    const [result] = (await Connect.query('SELECT * FROM follows WHERE user = ? AND follow = ?', [
+      username,
+      followName
+    ])) as RowDataPacket[];
+    const isFollow = result.length > 0;
+    ctx.body = formatResponse(200, 'success', { isFollow });
   } catch (err) {
     if (err instanceof Error) {
       ctx.body = formatResponse(500, 'fail', err.message);

@@ -8,6 +8,14 @@ import { SECRET } from './global';
 import path from 'path';
 import koaStatic from 'koa-static';
 import plansRouter from './routes/plans';
+import articleRouter from './routes/articles';
+import labelRouter from './routes/labels';
+import likeRouter from './routes/likes';
+import collectRouter from './routes/collects';
+import commentRouter from './routes/comments';
+import messageRouter from './routes/messages';
+import historyRouter from './routes/history';
+import searchRouter from './routes/searchs';
 
 const app = new Koa();
 app.use(cors());
@@ -47,13 +55,25 @@ app.use(
       /^\/api\/users\/has/,
       /^\/api\/users\/register/,
       /^\/api\/users\/forget-password/,
-      /^\/api\/users\/change-password/
+      /^\/api\/users\/other-info/,
+      /^\/api\/users\/change-password/,
+      /^\/api\/articles\/get-recommand-articles/,
+      /^\/api\/articles\/get-article-info/,
+      /^\/api\/searchs\/search-articles/
     ]
   })
 );
 
 app.use(usersRouter.routes()).use(usersRouter.allowedMethods());
 app.use(plansRouter.routes()).use(plansRouter.allowedMethods());
+app.use(articleRouter.routes()).use(articleRouter.allowedMethods());
+app.use(labelRouter.routes()).use(labelRouter.allowedMethods());
+app.use(likeRouter.routes()).use(likeRouter.allowedMethods());
+app.use(collectRouter.routes()).use(collectRouter.allowedMethods());
+app.use(commentRouter.routes()).use(commentRouter.allowedMethods());
+app.use(messageRouter.routes()).use(messageRouter.allowedMethods());
+app.use(historyRouter.routes()).use(historyRouter.allowedMethods());
+app.use(searchRouter.routes()).use(searchRouter.allowedMethods());
 app.listen(3000, () => {
   console.log('server is running at http://localhost:3000');
 });

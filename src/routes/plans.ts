@@ -43,7 +43,7 @@ router.post('/new-plan', async ctx => {
       username
     ]);
     await Connection.query('UPDATE users SET plan = plan + 1 WHERE user_name = ?', [username]);
-    Connection.commit();
+    await Connection.commit();
     ctx.body = formatResponse(200, 'success', 'Create plan successfully');
   } catch (error) {
     if (error instanceof Error) {
@@ -93,7 +93,7 @@ router.post('/change-start-state', async ctx => {
       // 将该用户的该 plan start 设置为 0
       await Connection.query('UPDATE plans SET start = 0 WHERE plan_id = ? AND user = ?', [plan_id, username]);
     }
-    Connection.commit();
+    await Connection.commit();
     ctx.body = formatResponse(200, 'success', 'Change start state successfully');
   } catch (error) {
     if (error instanceof Error) {
@@ -118,7 +118,7 @@ router.post('/delete-plan', async ctx => {
 
     // 删除用户的 plan 计数
     await Connection.query('UPDATE users SET plan = plan - 1 WHERE user_name = ?', [username]);
-    Connection.commit();
+    await Connection.commit();
     ctx.body = formatResponse(200, 'success', 'Delete plan successfully');
   } catch (error) {
     if (error instanceof Error) {
@@ -202,6 +202,29 @@ router.post('/get-plan', async ctx => {
         complate: JSON.parse(plan[0].complate)
       }
     });
+  } catch (error) {
+    if (error instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', error.message);
+    }
+  }
+});
+
+router.post('/set-complate', async ctx => {
+  try {
+    // 从响应头获取 token
+    const token = ctx.request.headers.authorization as string;
+    // 解析 token Bearer token
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    const { username } = decoded as { username: string };
+    const { plan_id, complate } = JSON.parse(ctx.request.body) as { plan_id: string; complate: Array<number> };
+
+    // 更新该用户计划的完成情况
+    await Connect.query('UPDATE plans SET complate = ? WHERE user = ? AND plan_id = ?', [
+      JSON.stringify(complate),
+      username,
+      plan_id
+    ]);
+    ctx.body = formatResponse(200, 'success', 'Set complate successfully');
   } catch (error) {
     if (error instanceof Error) {
       ctx.body = formatResponse(500, 'fail', error.message);
