@@ -7,6 +7,7 @@ import generateUUID from '../../utils/uuidMiddleWare';
 import fs from 'fs';
 import { RowDataPacket } from 'mysql2';
 import { generateImage } from '../../utils/openAI';
+import { spawn } from 'child_process';
 
 const router = new Router({
   prefix: '/api/articles'
@@ -118,10 +119,61 @@ router.post('/delete-article', async ctx => {
   }
 });
 
-router.get('/get-recommand-articles', async ctx => {
+router.post('/get-recommand-articles', async ctx => {
   // 获取 60 条文章，如果不够 60 条，就获取全部
   try {
-    const [rows] = (await Connect.query('SELECT * FROM articles LIMIT ?', [60])) as RowDataPacket[];
+    // 从响应头获取 token
+    const token = ctx.request.headers.authorization as string;
+    // 解析 token Bearer token
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    const { username } = decoded as { username: string };
+    const { page } = JSON.parse(ctx.request.body) as { page: number };
+    // 根据 page 获取文章
+    const [rows] = (await Connect.query('SELECT * FROM articles LIMIT ?, ?', [(page - 1) * 25, 25])) as RowDataPacket[];
+    const articles = rows.map((row: RowDataPacket) => {
+      row.content = JSON.parse(row.content);
+      return row;
+    });
+    // 取出用户的点赞、收藏、浏览、搜索记录
+    // 取出用户的收藏
+    const [collections] = (await Connect.query('SELECT * FROM collects WHERE user = ?', [username])) as RowDataPacket[];
+    // 取出用户的点赞
+    const [likes] = (await Connect.query('SELECT * FROM likes WHERE user = ?', [username])) as RowDataPacket[];
+    // 取出用户的浏览记录
+    const [browses] = (await Connect.query('SELECT * FROM histories WHERE user = ?', [username])) as RowDataPacket[];
+    // 取出用户的搜索记录
+    const [searches] = (await Connect.query('SELECT * FROM searchs WHERE user = ?', [username])) as RowDataPacket[];
+    console.log('start python', collections, likes, browses, searches);
+    // 取出需要的内容
+    const newArticles = articles.map((article: RowDataPacket) => {
+      // 取出每一个的 title 和 text 组成一个字符串
+      let newContent = '';
+
+      article.content.plan.forEach((plan: { title: string; text: string }) => {
+        newContent += plan.title + plan.text;
+      });
+
+      return {
+        article_id: article.article_id,
+        content: newContent,
+        user: article.user,
+        human_labels: article.human_labels
+      };
+    });
+    // console.log(JSON.stringify(newArticles));
+    console.log('start python', newArticles);
+    const pythonProcess = spawn('python', ['src/recommand/index.py', JSON.stringify({ newArticles })]);
+    pythonProcess.stdout.on('data', data => {
+      console.log(data.toString());
+    });
+    pythonProcess.stderr.on('data', data => {
+      console.log(data.toString());
+    });
+    // 判断是否已经没有文章了
+    if (rows.length === 0) {
+      ctx.body = formatResponse(200, 'success', { articles: [], over: true });
+      return;
+    }
     ctx.body = formatResponse(200, 'success', { articles: rows });
   } catch (error) {
     if (error instanceof Error) {
@@ -195,6 +247,56 @@ router.post('/get-img', async ctx => {
     clearTimeout(timer);
   } catch (err) {
     clearTimeout(timer);
+    console.log(err);
+    if (err instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', err.message);
+    }
+  }
+});
+
+// 取出该用户关注的人所有文章
+router.get('/get-follow-articles', async ctx => {
+  try {
+    const Connection = await Connect.getConnection();
+    // 从响应头获取 token
+    const token = ctx.request.headers.authorization as string;
+    // 解析 token Bearer token
+    const decoded = JWT.verify(token.split(' ')[1], SECRET);
+    const { username } = decoded as { username: string };
+    const [rows] = (await Connection.query(
+      'SELECT * FROM articles WHERE user IN (SELECT follow FROM follows WHERE user = ?)',
+      [username]
+    )) as RowDataPacket[];
+    ctx.body = formatResponse(200, 'success', { articles: rows });
+  } catch (err) {
+    console.log(err);
+    if (err instanceof Error) {
+      ctx.body = formatResponse(500, 'fail', err.message);
+    }
+  }
+});
+
+const labelMap = {
+  multiple: '多人行',
+  double: '双人行',
+  single: '单人行',
+  food: '美食',
+  sea: '海边',
+  mountain: '爬山',
+  roadtrips: '自驾游',
+  specialForces: '特种兵'
+};
+
+//根据标签获取文章
+router.post('/get-articles-by-label', async ctx => {
+  try {
+    const { label } = JSON.parse(ctx.request.body) as { label: string };
+    const [rows] = (await Connect.query('SELECT * FROM articles WHERE human_labels LIKE ?', [
+      // @ts-expect-error ts-migrate(7006) FIXME: Parameter 'label' implicitly has an 'any' type.
+      `%${labelMap[label]}%`
+    ])) as RowDataPacket[];
+    ctx.body = formatResponse(200, 'success', { articles: rows });
+  } catch (err) {
     console.log(err);
     if (err instanceof Error) {
       ctx.body = formatResponse(500, 'fail', err.message);

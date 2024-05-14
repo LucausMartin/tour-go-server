@@ -59,7 +59,9 @@ app.use(
       /^\/api\/users\/change-password/,
       /^\/api\/articles\/get-recommand-articles/,
       /^\/api\/articles\/get-article-info/,
-      /^\/api\/searchs\/search-articles/
+      /^\/api\/searchs\/search-articles/,
+      /^\/api\/articles\/get-follow-articles/,
+      /^\/api\/articles\/get-articles-by-label/
     ]
   })
 );
